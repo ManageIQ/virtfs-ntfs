@@ -1,5 +1,11 @@
 # VirtFS::NTFS
 
+[![Gem Version](https://badge.fury.io/rb/virtfs-ntfs.svg)](http://badge.fury.io/rb/virtfs-ntfs)
+[![Build Status](https://travis-ci.org/ManageIQ/virtfs-ntfs.svg)](https://travis-ci.org/ManageIQ/virtfs-ntfs)
+[![Code Climate](https://codeclimate.com/github/ManageIQ/virtfs-ntfs.svg)](https://codeclimate.com/github/ManageIQ/virtfs-ntfs)
+[![Test Coverage](https://codeclimate.com/github/ManageIQ/virtfs-ntfs/badges/coverage.svg)](https://codeclimate.com/github/ManageIQ/virtfs-ntfs/coverage)
+[![Dependency Status](https://gemnasium.com/ManageIQ/virtfs-ntfs.svg)](https://gemnasium.com/ManageIQ/virtfs-ntfs)
+
 An NTFS based filesystem module for VirtFS.
 
 ## Installation
