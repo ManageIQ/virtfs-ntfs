@@ -5,7 +5,7 @@ require 'virtfs/ntfs/version'
 
 Gem::Specification.new do |spec|
   spec.name          = "virtfs-ntfs"
-  spec.version       = Virtfs::NTFS::VERSION
+  spec.version       = VirtFS::NTFS::VERSION
   spec.authors       = ["ManageIQ Developers"]
 
   spec.summary       = %q{An NTFS based filesystem module for VirtFS}
