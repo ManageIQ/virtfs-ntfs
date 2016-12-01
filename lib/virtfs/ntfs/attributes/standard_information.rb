@@ -1,7 +1,7 @@
-require 'util/win32/nt_util'
+require 'virtfs/ntfs/nt_util'
 require 'binary_struct'
 
-module NTFS
+module VirtFS::NTFS
   #
   # STANDARD_INFORMATION - Attribute: Standard information (0x10).
   #
@@ -86,22 +86,5 @@ module NTFS
       @cTime       = NtUtil.nt_filetime_to_ruby_time(@asi['time_created'])
       @permissions = @asi['dos_permissions']
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Time created    : #{@cTime}\n"
-      out << "  Time altered    : #{@mTime}\n"
-      out << "  Time mft changed: #{NtUtil.nt_filetime_to_ruby_time(@asi['time_mft_changed'])}\n"
-      out << "  Time read       : #{@aTime}\n"
-      out << "  Permissions     : 0x#{'%08x' % @permissions}\n"
-      out << "  Max versions    : #{@asi['max_versions']}\n"
-      out << "  Version number  : #{@asi['ver_num']}\n"
-      out << "  Class id        : #{@asi['class_id']}\n"
-      out << "  Owner id        : #{@asi['owner_id']}\n"
-      out << "  Security id     : #{@asi['security_id']}\n"
-      out << "  Quota charged   : #{@asi['quota_charged']}\n"
-      out << "  Update seq num  : #{@asi['update_seq_num']}\n"
-      out << "---\n"
-    end
-  end
-end # module NTFS
+  end # class StandardInformation
+end # module VirtFS::NTFS

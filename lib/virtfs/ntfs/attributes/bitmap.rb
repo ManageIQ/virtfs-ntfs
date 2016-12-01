@@ -1,4 +1,4 @@
-module NTFS
+module VirtFS::NTFS
   class Bitmap
     # BITMAP_ATTR - Attribute: Bitmap (0xb0).
     #
@@ -10,9 +10,8 @@ module NTFS
     # number of clusters in the index allocation attribute.
     #
 
-    def self.create_from_header(header, buf)
-      return Bitmap.new(buf) if header.containsFileNameIndexes?
-      $log.debug("Skipping #{header.typeName} for name <#{header.name}>") if $log
+    def self.from_header(header, buf)
+      return Bitmap.new(buf) if header.file_name_indices?
       nil
     end
 
@@ -22,5 +21,5 @@ module NTFS
       @data   = buf.kind_of?(DataRun) ? buf.read(buf.length) : buf
       @length = @data.length
     end
-  end
-end
+  end # class Bitmap
+end # module VirtFS::NTFS

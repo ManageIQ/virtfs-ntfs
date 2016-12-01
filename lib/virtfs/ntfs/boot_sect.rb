@@ -1,7 +1,7 @@
 # encoding: US-ASCII
 
 require 'binary_struct'
-require 'fs/ntfs/mft_entry'
+require 'virtfs/ntfs/mft_entry'
 require 'rufus/lru'
 
 #######################################################################################
@@ -9,7 +9,7 @@ require 'rufus/lru'
 # A good source of understanding how to use this data is in Brian Carrier's File System Forensic Analysis
 #######################################################################################
 
-module NTFS
+module VirtFS::NTFS
   # The boot parameters block, sector 0 byte 0 of a bootable volume.
   BOOT_PARAMETERS_BLOCK = BinaryStruct.new([
     'a3', 'jmp_boot_loader',          # Jump to boot loader
@@ -53,14 +53,16 @@ module NTFS
 
   # BootSect represents a volume boot sector.
   class BootSect
-    attr_reader :stream, :bytesPerSector, :sectorsPerCluster, :mediaDescriptor
-    attr_reader :totalCapacity, :bytesPerFileRec, :bytesPerIndexRec, :serialNumber
-    attr_reader :signature, :bytesPerCluster
+    attr_reader :stream, :bytes_per_sector, :sectors_per_cluster, :media_descriptor
+    attr_reader :total_capacity, :bytes_per_file_rec, :bytes_per_index_rec, :serial_number
+    attr_reader :signature, :bytes_per_cluster
 
-    attr_accessor :version, :volumeInfo
+    attr_accessor :version, :volume_info, :fs
 
-    def initialize(stream)
-      raise "MIQ(NTFS::BootSect.initialize) Nil stream" if stream.nil?
+    def initialize(stream, fs)
+      raise "nil stream" if stream.nil?
+
+      @fs = fs
 
       # Buffer stream & get enough data to fill BPB.
       @stream = stream
@@ -69,21 +71,21 @@ module NTFS
 
       # Always check magic number first.
       @signature = @bpb['signature']
-      raise "MIQ(NTFS::BootSect.initialize) Boot sector is not NTFS: 0x#{'%04x' % signature}" if signature != NTFS_MAGIC
+      raise "boot sector is not NTFS: 0x#{'%04x' % signature}" if signature != NTFS_MAGIC
 
       # Get accessor values.
-      @bytesPerSector    = @bpb['bytes_per_sector']
-      @bytesPerCluster   = @bpb['sectors_per_cluster'] * @bytesPerSector
-      @sectorsPerCluster = @bpb['sectors_per_cluster']
-      @mediaDescriptor   = @bpb['media_descriptor']
-      @totalCapacity     = @bpb['sectors_per_volume'] * @bytesPerSector
-      @bytesPerFileRec   = bytesPerRec(@bpb['clusters_per_mft_record'])
-      @bytesPerIndexRec  = bytesPerRec(@bpb['clusters_per_index_record'])
-      @serialNumber      = @bpb['volume_serial_number']
+      @bytes_per_sector     = @bpb['bytes_per_sector']
+      @bytes_per_cluster    = @bpb['sectors_per_cluster'] * @bytes_per_sector
+      @sectors_per_cluster  = @bpb['sectors_per_cluster']
+      @media_descriptor     = @bpb['media_descriptor']
+      @total_capacity       = @bpb['sectors_per_volume'] * @bytes_per_sector
+      @bytes_per_file_rec   = bytes_per_rec(@bpb['clusters_per_mft_record'])
+      @bytes_per_index_rec  = bytes_per_rec(@bpb['clusters_per_index_record'])
+      @serial_number        = @bpb['volume_serial_number']
 
       # MFTs in-memory
       @sys_mfts    = {}
-      @mfts        = LruHash.new(NTFS::DEF_CACHE_SIZE)
+      @mfts        = LruHash.new(FS::DEF_CACHE_SIZE)
     end
 
     # Convert to string (just return OEM name).
@@ -92,8 +94,8 @@ module NTFS
     end
 
     # NTFS has an interesting shorthand...
-    def bytesPerRec(size)
-      (size < 0) ? 2**size.abs : size * bytesPerCluster
+    def bytes_per_rec(size)
+      (size < 0) ? 2**size.abs : size * bytes_per_cluster
     end
 
     # Return the absolute byte position of the MFT.
@@ -101,27 +103,27 @@ module NTFS
       @bpb.nil? ? 0 : lcn2abs(@bpb['mft_lcn'])
     end
 
-    def fragTable
-      @fragTable || @rootFragTable
+    def frag_table
+      @frag_table || @root_frag_table
     end
 
-    def maxMft
-      return getMaxMft if @fragTable.nil?
-      @maxMft ||= getMaxMft
+    def max_mft
+      return get_max_mft if @frag_table.nil?
+      @max_mft ||= get_max_mft
     end
 
     def setup
-      @rootFragTable = mftEntry(0).rootAttributeData.data.runSpec
+      @root_frag_table = mft_entry(0).root_attribute_data.data.run_spec
 
       @sys_mfts.clear
       @mfts.clear
 
       # MFT Entry 0 ==> Prepare a fragment table.
-      @fragTable  = mftEntry(0).attributeData.data.runSpec   # Get the data runs for the MFT itself.
+      @frag_table  = mft_entry(0).attribute_data.data.run_spec   # Get the data runs for the MFT itself.
 
       # MFT Entry 3 ==> Volume Information
-      @volumeInfo = getVolumeInfo
-      @version    = @volumeInfo["version"].to_i
+      @volume_info = get_volume_info
+      @version    = @volume_info["version"].to_i
     end
 
     ################################################################################
@@ -132,11 +134,11 @@ module NTFS
     # values, and the least significant bit of each byte corresponds to the cluster that follows
     # the cluster that the most significant bit of the previous byte corresponds to.
     ################################################################################
-    def clusterInfo
-      return @clusterInfo unless @clusterInfo.nil?
+    def cluster_info
+      return @cluster_info unless @clusterInfo.nil?
 
       # MFT Entry 6 ==> BITMAP Information
-      ad = mftEntry(6).attributeData
+      ad = mft_entry(6).attribute_data
       data = ad.read(ad.length)
       ad.rewind
 
@@ -146,30 +148,30 @@ module NTFS
       uclusters = on
       fclusters = c.length - on
 
-      @clusterInfo = {"total" => nclusters, "free" => fclusters, "used" => uclusters}
+      @cluster_info = {"total" => nclusters, "free" => fclusters, "used" => uclusters}
     end
 
     # Returns free space on file system in bytes.
-    def freeBytes
-      clusterInfo["free"] * @bytesPerCluster
+    def free_bytes
+      cluster_info["free"] * @bytes_per_cluster
     end
 
-    def getVolumeInfo
-      mft = mftEntry(3)
+    def get_volume_info
+      mft = mft_entry(3)
       vi  = {}
 
-      if nameAttrib = mft.getFirstAttribute(AT_VOLUME_NAME)
+      if nameAttrib = mft.first_attribute(AT_VOLUME_NAME)
         vi["name"] = nameAttrib.name
       end
 
-      if objectidAttrib = mft.getFirstAttribute(AT_OBJECT_ID)
+      if objectidAttrib = mft.first_attribute(AT_OBJECT_ID)
         vi["objectId"]      = objectidAttrib.objectId.to_s
         vi["birthVolumeId"] = objectidAttrib.birthVolumeId.to_s
         vi["birthObjectId"] = objectidAttrib.birthObjectId.to_s
         vi["domainId"]      = objectidAttrib.domainId.to_s
       end
 
-      if infoAttrib = mft.getFirstAttribute(AT_VOLUME_INFORMATION)
+      if infoAttrib = mft.first_attribute(AT_VOLUME_INFORMATION)
         vi["version"] = infoAttrib.version
         vi["flags"]   = infoAttrib.flags
       end
@@ -177,22 +179,22 @@ module NTFS
       vi
     end
 
-    def numFrags
-      fragTable.size / 2
+    def num_frags
+      frag_table.size / 2
     end
 
     # Iterate all run lengths & return how many entries fit.
-    def getMaxMft
+    def get_max_mft
       total_clusters = 0
-      fragTable.each_slice(2) { |_vcn, len| total_clusters += len }
-      total_clusters * @bytesPerCluster / @bytesPerFileRec
+      frag_table.each_slice(2) { |_vcn, len| total_clusters += len }
+      total_clusters * @bytes_per_cluster / @bytes_per_file_rec
     end
 
-    def rootDir
-      @rootDir ||= mftEntry(5).indexRoot
+    def root_dir
+      @root_dir ||= mft_entry(5).index_root
     end
 
-    def mftEntry(recordNumber)
+    def mft_entry(recordNumber)
       if recordNumber < 12
         @sys_mfts[recordNumber] = MftEntry.new(self, recordNumber) unless @sys_mfts.key?(recordNumber)
         return @sys_mfts[recordNumber]
@@ -200,14 +202,14 @@ module NTFS
 
       if @mfts.key?(recordNumber)
         mft = @mfts[recordNumber]
-        mft.attributeData.rewind unless mft.attributeData.nil?
+        mft.attribute_data.rewind unless mft.attribute_data.nil?
         return mft
       end
       @mfts[recordNumber] = MftEntry.new(self, recordNumber)
     end
 
     # Quick check to see if volume is mountable.
-    def isMountable?
+    def mountable?
       return false if @bpb.nil?
       b  = @bpb['reserved_sectors'] == 0
       b &= @bpb['unused1'] == "\0" * 5
@@ -218,7 +220,7 @@ module NTFS
 
     # Convert a logical cluster number to an absolute byte position.
     def lcn2abs(lcn)
-      lcn * bytesPerCluster
+      lcn * bytes_per_cluster
     end
 
     # Convert a virtual cluster number to an absolute byte position.
@@ -227,27 +229,27 @@ module NTFS
     end
 
     # Use data run to convert mft record number to byte pos.
-    def mftRecToBytePos(recno)
+    def mft_rec_to_byte_pos(recno)
       # Return start of mft if rec 0 (no point in the rest of this).
       return mftLoc if recno == 0
 
       # Find which fragment contains the target mft record.
-      start = fragTable[0]; last_clusters = 0; target_cluster = recno * @bytesPerFileRec / @bytesPerCluster
-      if (recno > @bytesPerCluster / @bytesPerFileRec) && (fragTable.size > 2)
+      start = frag_table[0]; last_clusters = 0; target_cluster = recno * @bytes_per_file_rec / @bytes_per_cluster
+      if (recno > @bytes_per_cluster / @bytes_per_file_rec) && (frag_table.size > 2)
         total_clusters = 0
-        fragTable.each_slice(2) do |vcn, len|
+        frag_table.each_slice(2) do |vcn, len|
           start = vcn # These are now absolute clusters, not offsets.
           total_clusters += len
           break if total_clusters > target_cluster
           last_clusters += len
         end
         # Toss if we haven't found the fragment.
-        raise "MIQ(NTFS::BootSect.mftRecToBytePos) Can't find MFT record #{recno} in data run.\ntarget = #{target_cluster}\ntbl = #{fragTable.inspect}" if total_clusters < target_cluster
+        raise "can't find MFT record #{recno} in data run.\ntarget = #{target_cluster}\ntbl = #{frag_table.inspect}" if total_clusters < target_cluster
       end
 
       # Calculate offset in target cluster & final byte position.
-      offset = (recno - (last_clusters * @bytesPerCluster / @bytesPerFileRec)) * @bytesPerFileRec
-      start * @bytesPerCluster + offset
+      offset = (recno - (last_clusters * @bytes_per_cluster / @bytes_per_file_rec)) * @bytes_per_file_rec
+      start * @bytes_per_cluster + offset
     end
-  end
-end # module NTFS
+  end # class BootSect
+end # module VirtFS::NTFS

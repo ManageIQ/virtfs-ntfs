@@ -1,7 +1,7 @@
-require 'fs/ntfs/utils'
+require 'virtfs/ntfs/utils'
 require 'binary_struct'
 
-module NTFS
+module VirtFS::NTFS
   #
   # INDEX_BLOCK - Attribute: Index allocation (0xa0).
   #
@@ -56,30 +56,15 @@ module NTFS
         @data = NTFS::Utils.process_fixups(@data, @bps, @irh['usa_offset'], @irh['usa_count'])
       rescue => err
         @valid = false
-        $log.error("#{log_prefix} Invalid Index Record Header because: <#{err.message}>\n#{dump}")
       end
     end
 
-    def isValid?
+    def valid?
       @valid
     end
 
     def to_s
       @irh['signature']
     end
-
-    def dump(withData = nil)
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Signature                : #{@irh['signature']}\n"
-      out << "  USA Offset               : #{@irh['usa_offset']}\n"
-      out << "  USA Count                : #{@irh['usa_count']}\n"
-      out << "  $LogFile sequence number : #{@irh['lsn']}\n"
-      out << "  Index Block VCN          : #{@irh['index_block_vcn']}\n"
-      if withData
-        out << "Raw Data:\n"
-        out << @data.hex_dump
-      end
-      out << "---\n"
-    end
-  end
-end # module NTFS
+  end # class IndexRecordHeader
+end # module VirtFS::NTFS

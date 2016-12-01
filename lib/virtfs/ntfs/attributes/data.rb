@@ -1,6 +1,6 @@
 require 'binary_struct'
 
-module NTFS
+module VirtFS::NTFS
   class AttribData
     #
     # DATA_ATTR - Attribute: Data attribute (0x80)
@@ -9,16 +9,14 @@ module NTFS
     #
     # Data contents of a file (i.e. the unnamed stream) or of a named stream.
     #
-    def self.create_from_header(header, buf)
-      return AttribData.new(buf) if header.namelen == 0
-      $log.debug("MFT Alternate Data Stream (#{header.name})") if $log
-      nil
+    def self.from_header(header, buf)
+      header.namelen == 0 ? AttribData.new(buf) : nil
     end
 
     attr_reader :data, :length, :run
 
     def initialize(buf)
-      @run    = buf if buf.kind_of?(NTFS::DataRun)
+      @run    = buf if buf.kind_of?(VirtFS::NTFS::DataRun)
       @data   = buf
       @length = @data.length
       @pos    = 0
@@ -62,13 +60,6 @@ module NTFS
 
     def rewind
       seek(0)
-    end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Length: #{@length}\n"
-      out << @data.dumpRunList if @data.class == NTFS::DataRun
-      out << "---\n"
     end
   end
 end # module NTFS

@@ -1,6 +1,6 @@
-require 'util/miq-unicode'
+require 'virt_disk/disk_unicode'
 
-module NTFS
+module VirtFS::NTFS
   #
   # VOLUME_NAME - Attribute: Volume name (0x60).
   #
@@ -21,11 +21,5 @@ module NTFS
     def to_s
       @name
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n  "
-      out << @name
-      out << "---\n"
-    end
-  end
-end # module NTFS
+  end # class VolumeName
+end # module VirtFS::NTFS

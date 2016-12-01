@@ -1,9 +1,9 @@
 require 'binary_struct'
-require 'util/miq-unicode'
-require 'fs/ntfs/utils'
-require 'fs/ntfs/attrib_type'
+require 'virt_disk/disk_unicode'
+require 'virtfs/ntfs/utils'
+require 'virtfs/ntfs/attributes/type'
 
-module NTFS
+module VirtFS::NTFS
   # Standard attribute header.
   # Each attribute begins with one of these.
   STANDARD_ATTRIBUTE_HEADER = BinaryStruct.new([
@@ -96,8 +96,8 @@ module NTFS
       @namelen = @header['name_length']
 
       # Get the rest of the data (a resident or non-resident struct).
-      which = isResident? ? SAH_RESIDENT : SAH_NONRESIDENT
-      len   = isResident? ? SIZEOF_SAH_RESIDENT : SIZEOF_SAH_NONRESIDENT
+      which = resident? ? SAH_RESIDENT : SAH_NONRESIDENT
+      len   = resident? ? SIZEOF_SAH_RESIDENT : SIZEOF_SAH_NONRESIDENT
       @specific = which.decode(buf[offset..-1])
       offset += len
 
@@ -107,7 +107,7 @@ module NTFS
 
     def get_value(buf, boot_sector)
       # Prep a buffer to pass to subobjects.
-      if isResident?
+      if resident?
         # Resident attributes are after header res struct & name.
         abuf = buf[@specific['value_offset'], @specific['value_length']]
       else
@@ -125,24 +125,24 @@ module NTFS
       @name.nil? ? 'N/A' : @name
     end
 
-    def isResident?
+    def resident?
       @header['non_resident'] == 0
     end
 
-    def typeName
+    def type_name
       TypeName[@header['attrib_type']]
     end
 
-    def isCompressed?
-      NTFS::Utils.gotBit?(@flags, AF_COMPRESSED)
+    def compressed?
+      NTFS::Utils.bit?(@flags, AF_COMPRESSED)
     end
 
-    def isEncrypted?
-      NTFS::Utils.gotBit?(@flags, AF_ENCRYPTED)
+    def encrypted?
+      NTFS::Utils.bit?(@flags, AF_ENCRYPTED)
     end
 
-    def isSparse?
-      NTFS::Utils.gotBit?(@flags, AF_SPARSE)
+    def sparse?
+      NTFS::Utils.bit?(@flags, AF_SPARSE)
     end
 
     ######################################################################################################
@@ -159,36 +159,8 @@ module NTFS
     # points to index records stored in the non-resident $INDEX_ALLOCATION. Viewing the contents of that
     # file, the B-tree index of file names in the directory.
     ######################################################################################################
-    def containsFileNameIndexes?
+    def file_name_indices?
       name == "$I30"
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Type             : 0x#{'%08x' % @header['attrib_type']} (#{typeName})\n"
-      out << "  Length           : 0x#{'%08x' % @header['length']}\n"
-      out << "  Non resident     : 0x#{'%02x' % @header['non_resident']}\n"
-      out << "  Name length      : 0x#{'%02x' % @header['name_length']}\n"
-      out << "  Offset to name   : 0x#{'%04x' % @header['name_offset']}\n"
-      out << "  Flags            : 0x#{'%04x' % @header['flags']}\n"
-      out << "  Attrib id        : 0x#{'%04x' % @header['attrib_id']}\n"
-
-      # Further depends on type.
-      if self.isResident?
-        out << "  Value length     : 0x#{'%08x' % @specific['value_length']}\n"
-        out << "  Value offset     : 0x#{'%04x' % @specific['value_offset']}\n"
-        out << "  Resident Flags   : 0x#{'%02x' % @specific['resident_flags']}\n"
-      else
-        out << "  First VCN        : 0x#{'%016x' % @specific['first_vcn']}\n"
-        out << "  Last VCN         : 0x#{'%016x' % @specific['last_vcn']}\n"
-        out << "  Mapping Pairs Offset: 0x#{'%04x' % @specific['mapping_pairs_offset']}\n"
-        out << "  Compression      : 0x#{'%04x' % @specific['compression_unit']}\n"
-        out << "  Allocated size   : 0x#{'%016x' % @specific['allocated_size']}\n"
-        out << "  Data size        : 0x#{'%016x' % @specific['data_size']}\n"
-        out << "  Initialized size : 0x#{'%016x' % @specific['initialized_size']}\n"
-      end
-      out << "  Name             : #{@name}\n" if @header['name_length'] > 0
-      out << "---\n"
-    end
-  end
-end # module NTFS
+  end # class AttribHeader
+end # module VirtFS::NTFS

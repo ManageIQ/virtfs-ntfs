@@ -1,6 +1,6 @@
 require 'binary_struct'
 
-module NTFS
+module VirtFS::NTFS
   #
   # VOLUME_INFORMATION - Attribute: Volume information (0x70).
   #
@@ -41,13 +41,5 @@ module NTFS
     def to_s
       @version
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Major ver: #{@avi['ver_major'].to_i}\n"
-      out << "  Minor ver: #{@avi['ver_minor'].to_i}\n"
-      out << "  Flags    : 0x#{'%04x' % @flags}\n"
-      out << "---\n"
-    end
-  end
-end # module NTFS
+  end # class VolumeInformation
+end # module VirtFS::NTFS

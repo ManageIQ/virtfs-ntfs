@@ -1,31 +1,31 @@
 # Utilities.
 require 'binary_struct'
-require 'fs/ntfs/utils'
+require 'virtfs/ntfs/utils'
 
 # Attribute types & names.
-require 'fs/ntfs/attrib_type'
+require 'virtfs/ntfs/attributes/type'
 
 # Classes.
 
 # An attribute header preceeds each attribute.
-require 'fs/ntfs/attrib_header'
+require 'virtfs/ntfs/attributes/header'
 
 # A data run is storage for non-resident attributes.
-require 'fs/ntfs/data_run'
+require 'virtfs/ntfs/data_run'
 
 # These are the attribute types (so far these are the only types processed).
-require 'fs/ntfs/attrib_attribute_list'
-require 'fs/ntfs/attrib_bitmap'
-require 'fs/ntfs/attrib_standard_information'
-require 'fs/ntfs/attrib_file_name'
-require 'fs/ntfs/attrib_object_id'
-require 'fs/ntfs/attrib_volume_name'
-require 'fs/ntfs/attrib_volume_information'
-require 'fs/ntfs/attrib_data'
-require 'fs/ntfs/attrib_index_root'
-require 'fs/ntfs/attrib_index_allocation'
+require 'virtfs/ntfs/attributes/attribute_list'
+require 'virtfs/ntfs/attributes/bitmap'
+require 'virtfs/ntfs/attributes/standard_information'
+require 'virtfs/ntfs/attributes/file_name'
+require 'virtfs/ntfs/attributes/object_id'
+require 'virtfs/ntfs/attributes/volume_name'
+require 'virtfs/ntfs/attributes/volume_information'
+require 'virtfs/ntfs/attributes/data'
+require 'virtfs/ntfs/attributes/index_root'
+require 'virtfs/ntfs/attributes/index_allocation'
 
-module NTFS
+module VirtFS::NTFS
   #
   # MFT_RECORD - An MFT record layout
   #
@@ -86,9 +86,7 @@ module NTFS
 
   # MftEntry represents one single MFT entry.
   class MftEntry
-    DEBUG_TRACE_MFT = false && $log
-
-    attr_reader :sequenceNum, :recNum, :boot_sector, :mft_entry, :attribs
+    attr_reader :sequence_num, :rec_num, :boot_sector, :mft_entry, :attribs
 
     MFT_RECORD_IN_USE        = 0x0001  # Not set if file has been deleted
     MFT_RECORD_IS_DIRECTORY  = 0x0002  # Set if record describes a directory
@@ -97,47 +95,45 @@ module NTFS
 
     EXPECTED_SIGNATURE       = 'FILE'
 
-    def initialize(bs, recordNumber)
-      log_prefix = "MIQ(NTFS::MftEntry.initialize)"
-      raise "#{log_prefix} Nil boot sector" if bs.nil?
+    def initialize(bs, record_number)
+      raise "nil boot sector" if bs.nil?
 
       @attribs         = []
       @attribs_by_type = Hash.new { |h, k| h[k] = [] }
 
       # Buffer boot sector & seek to requested record.
       @boot_sector = bs
-      bs.stream.seek(bs.mftRecToBytePos(recordNumber))
+      bs.stream.seek(bs.mft_rec_to_byte_pos(record_number))
 
       # Get & decode the FILE_RECORD.
-      @buf       = bs.stream.read(bs.bytesPerFileRec)
+      @buf       = bs.stream.read(bs.bytes_per_file_rec)
       @mft_entry = FILE_RECORD.decode(@buf)
 
       # Adjust for older versions (don't have unused1 and mft_rec_num).
       version = bs.version
       if !version.nil? && version < 4.0
         @mft_entry['fixup_seq_num'] = @mft_entry['unused1']
-        @mft_entry['mft_rec_num']   = recordNumber
+        @mft_entry['mft_rec_num']   = record_number
       end
 
       # Set accessor data.
-      @sequenceNum = @mft_entry['seq_num']
-      @recNum      = @mft_entry['mft_rec_num']
-      @flags       = @mft_entry['flags']
+      @sequence_num = @mft_entry['seq_num']
+      @rec_num      = @mft_entry['mft_rec_num']
+      @flags        = @mft_entry['flags']
 
       begin
         # Check for proper signature.
-        NTFS::Utils.validate_signature(@mft_entry['signature'], EXPECTED_SIGNATURE)
+        VirtFS::NTFS::Utils.validate_signature(@mft_entry['signature'], EXPECTED_SIGNATURE)
         # Process per-sector "fixups" that NTFS uses to detect corruption of multi-sector data structures
-        @buf = NTFS::Utils.process_fixups(@buf, @boot_sector.bytesPerSector, @mft_entry['usa_offset'], @mft_entry['usa_count'])
+        @buf = VirtFS::NTFS::Utils.process_fixups(@buf, @boot_sector.bytes_per_sector, @mft_entry['usa_offset'], @mft_entry['usa_count'])
       rescue => err
-        emsg = "#{log_prefix} Invalid MFT Entry <#{recordNumber}> because: <#{err.message}>"
-        $log.error("#{emsg}\n#{dump}")
+        emsg = "Invalid MFT Entry <#{record_number}> because: <#{err.message}>"
         raise emsg
       end
 
       @buf = @buf[@mft_entry['offset_to_attrib']..-1]
 
-      loadAttributeHeaders
+      attribute_headers
     end
 
     # For string rep, if valid return record number.
@@ -145,90 +141,83 @@ module NTFS
       @mft_entry['mft_rec_num'].to_s
     end
 
-    def isDeleted?
-      !NTFS::Utils.gotBit?(@flags, MFT_RECORD_IN_USE)
+    def deleted?
+      !VirtFS::NTFS::Utils.bit?(@flags, MFT_RECORD_IN_USE)
     end
 
-    def isDir?
-      NTFS::Utils.gotBit?(@flags, MFT_RECORD_IS_DIRECTORY)
+    def dir?
+      VirtFS::NTFS::Utils.bit?(@flags, MFT_RECORD_IS_DIRECTORY)
     end
 
-    def indexRoot
-      if @indexRoot.nil?
-        @indexRoot             = getFirstAttribute(AT_INDEX_ROOT)
-        @indexRoot.bitmap      = getFirstAttribute(AT_BITMAP)      unless @indexRoot.nil?
-        @indexRoot.allocations = getAttributes(AT_INDEX_ALLOCATION) unless @indexRoot.nil?
+    def index_root
+      if @index_root.nil?
+        @index_root             = first_attribute(AT_INDEX_ROOT)
+        @index_root.bitmap      = first_attribute(AT_BITMAP)      unless @index_root.nil?
+        @index_root.allocations = get_attributes(AT_INDEX_ALLOCATION) unless @index_root.nil?
       end
 
-      @indexRoot
+      @index_root
     end
 
-    def attributeData
-      if @attributeData.nil?
-        dataArray = getAttributes(AT_DATA)
+    def attribute_data
+      if @attribute_data.nil?
+        dataArray = get_attributes(AT_DATA)
 
         unless dataArray.nil?
           dataArray.compact!
           if dataArray.size > 0
-            @attributeData = dataArray.shift
-            dataArray.each { |datum| @attributeData.data.addRun(datum.run) }
+            @attribute_data = dataArray.shift
+            dataArray.each { |datum| @attribute_data.data.addRun(datum.run) }
           end
         end
       end
 
-      @attributeData
+      @attribute_data
     end
 
-    def rootAttributeData
-      loadFirstAttribute(AT_DATA)
+    def root_attribute_data
+      load_first_attribute(AT_DATA)
     end
 
-    def attributeList
-      @attributeList ||= loadFirstAttribute(AT_ATTRIBUTE_LIST)
+    def attribute_list
+      @attribute_list ||= load_first_attribute(AT_ATTRIBUTE_LIST)
     end
 
-    def loadAttributeHeaders
+    def attribute_headers
       offset = 0
       while h = AttribHeader.new(@buf[offset..-1])
         break if h.type.nil? || h.type == AT_END
-        $log.debug "NtfsMftEntry.loadAttributeHeaders - MFT(#{@recNum}) adding  Attr: #{h.typeName}" if DEBUG_TRACE_MFT
         attrib = {"type" => h.type, "offset" => offset, "header" => h}
         @attribs << attrib
         @attribs_by_type[h.type] << attrib
         offset += h.length
       end
-      @attribs_by_type.each { |k, v| $log.debug "NtfsMftEntry.loadAttributeHeaders - MFT(#{@recNum}) Attr: #{TypeName[k]} => Count: #{v.size}" }  if DEBUG_TRACE_MFT
     end
 
-    def getFirstAttribute(attribType)
-      getAttributes(attribType).first
+    def first_attribute(attribType)
+      get_attributes(attribType).first
     end
 
-    def getAttributes(attribType)
-      $log.debug "NtfsMftEntry.getAttributes        - MFT(#{@recNum}) getting Attr: #{TypeName[attribType]}" if DEBUG_TRACE_MFT
-      attributeList.nil? ? loadAttributes(attribType) : attributeList.loadAttributes(attribType)
+    def get_attributes(attribType)
+      attribute_list.nil? ? attributes(attribType) : attribute_list.attributes(attribType)
     end
 
-    def loadFirstAttribute(attribType)
-      loadAttributes(attribType).first
+    def load_first_attribute(attribType)
+      attributes(attribType).first
     end
 
-    def loadAttributes(attribType)
+    def attributes(attribType)
       result  = []
       if @attribs_by_type.key?(attribType)
-        $log.debug "NtfsMftEntry.loadAttributes       - MFT(#{@recNum}) loading Attr: #{TypeName[attribType]}" if DEBUG_TRACE_MFT
-
         @attribs_by_type[attribType].each do |attrib|
-          attrib["attr"] = createAttribute(attrib["offset"], attrib["header"]) unless attrib.key?('attr')
+          attrib["attr"] = create_attribute(attrib["offset"], attrib["header"]) unless attrib.key?('attr')
           result << attrib["attr"]
         end
       end
       result
     end
 
-    def createAttribute(offset, header)
-      $log.debug "NtfsMftEntry.createAttribute >> type=#{TypeName[header.type]} header=#{header.inspect}" if DEBUG_TRACE_MFT
-
+    def create_attribute(offset, header)
       buf = header.get_value(@buf[offset..-1], @boot_sector)
 
       return StandardInformation.new(buf)                             if header.type == AT_STANDARD_INFORMATION
@@ -237,52 +226,18 @@ module NTFS
       return VolumeName.new(buf)                                      if header.type == AT_VOLUME_NAME
       return VolumeInformation.new(buf)                               if header.type == AT_VOLUME_INFORMATION
       return AttributeList.new(buf, @boot_sector)                     if header.type == AT_ATTRIBUTE_LIST
-      return AttribData.create_from_header(header, buf)               if header.type == AT_DATA
-      return IndexRoot.create_from_header(header, buf, @boot_sector)  if header.type == AT_INDEX_ROOT
-      return IndexAllocation.create_from_header(header, buf)          if header.type == AT_INDEX_ALLOCATION
-      return Bitmap.create_from_header(header, buf)                   if header.type == AT_BITMAP
+      return AttribData.from_header(header, buf)                      if header.type == AT_DATA
+      return IndexRoot.from_header(header, buf, @boot_sector)         if header.type == AT_INDEX_ROOT
+      return IndexAllocation.from_header(header, buf)                 if header.type == AT_INDEX_ALLOCATION
+      return Bitmap.from_header(header, buf)                          if header.type == AT_BITMAP
 
       # Attribs are unrecognized if they don't appear in TypeName.
       unless TypeName.key?(header.type)
-        msg = "MIQ(NTFS::MftEntry.createAttribute) Unrecognized attribute type: 0x#{'%08x' % header.type} -- header: #{header.inspect}"
-        $log.warn(msg) if $log
+        msg = "MIQ(NTFS::MftEntry.create_attribute) Unrecognized attribute type: 0x#{'%08x' % header.type} -- header: #{header.inspect}"
         raise(msg)
       end
 
       nil
     end
-
-    def dump
-      ref = NTFS::Utils.MkRef(@mft_entry['base_mft_record'])
-
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Signature       : #{@mft_entry['signature']}\n"
-      out << "  USA Offset      : #{@mft_entry['usa_offset']}\n"
-      out << "  USA Count       : #{@mft_entry['usa_count']}\n"
-      out << "  Log file seq num: #{@mft_entry['lsn']}\n"
-      out << "  Sequence number : #{@mft_entry['seq_num']}\n"
-      out << "  Hard link count : #{@mft_entry['hard_link_count']}\n"
-      out << "  Offset to attrib: #{@mft_entry['offset_to_attrib']}\n"
-      out << "  Flags           : 0x#{'%04x' % @mft_entry['flags']}\n"
-      out << "  Real size of rec: #{@mft_entry['bytes_in_use']}\n"
-      out << "  Alloc siz of rec: #{@mft_entry['bytes_allocated']}\n"
-      out << "  Ref to base rec : seq #{ref[0]}, entry #{ref[1]}\n"
-      out << "  Next attrib id  : #{@mft_entry['next_attrib_id']}\n"
-      out << "  Unused1         : #{@mft_entry['unused1']}\n"
-      out << "  MFT rec num     : #{@mft_entry['mft_rec_num']}\n"
-      out << "  Fixup seq num   : 0x#{'%04x' % @mft_entry['fixup_seq_num']}\n"
-      @attribs.each do |hash|
-        begin
-          header = hash["header"]
-          out << header.dump
-
-          attrib = hash["attr"]
-          out << attrib.dump unless attrib.nil?
-        rescue NoMethodError
-        end
-      end
-
-      out
-    end
-  end
-end # module NTFS
+  end # class MftEntry
+end # module VirtFS::NTFS

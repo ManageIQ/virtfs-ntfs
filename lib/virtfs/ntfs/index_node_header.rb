@@ -1,6 +1,6 @@
 require 'binary_struct'
 
-module NTFS
+module VirtFS::NTFS
   #
   # INDEX_HEADER
   #
@@ -36,7 +36,7 @@ module NTFS
   class IndexNodeHeader
     NH_HAS_CHILDREN = 0x0001
 
-    attr_reader :startEntries, :endEntries, :flags
+    attr_reader :start_entries, :end_entries, :flags
 
     def initialize(buf)
       raise "MIQ(NTFS::IndexNodeHeader.initialize) Nil buffer" if buf.nil?
@@ -44,26 +44,17 @@ module NTFS
       @inh = INDEX_NODE_HEADER.decode(buf)
 
       # Get accessor data.
-      @flags        = @inh['flags']
-      @endEntries   = @inh['index_length']
-      @startEntries = @inh['entries_offset']
+      @flags         = @inh['flags']
+      @end_entries   = @inh['index_length']
+      @start_entries = @inh['entries_offset']
     end
 
     def to_s
       "0x#{'%08x' % @flags}"
     end
 
-    def hasChildren?
+    def children?
       (@flags & NH_HAS_CHILDREN) == NH_HAS_CHILDREN
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Entries Offset   : #{@startEntries}\n"
-      out << "  Index Length     : #{@endEntries}\n"
-      out << "  Allocated Size   : #{@inh['allocated_size']}\n"
-      out << "  Flags            : 0x#{'%08x' % @flags}\n"
-      out << "---\n"
-    end
-  end
-end # module NTFS
+  end # class IndexNodeHeader
+end # module VirtFS::NTFS

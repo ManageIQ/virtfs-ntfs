@@ -1,13 +1,13 @@
 # encoding: US-ASCII
 
-module NTFS
+module VirtFS::NTFS
   module Utils
     # Make a reference (upper two bytes are seq num, lower six are entry).
-    def self.MkRef(ref)
+    def self.mk_ref(ref)
       ref.divmod(2**48)
     end
 
-    def self.gotBit?(flags, bit)
+    def self.bit?(flags, bit)
       (flags & bit) == bit
     end
 
@@ -39,5 +39,5 @@ module NTFS
         raise "Invalid Signature <#{signature}>"
       end
     end
-  end
-end
+  end # module Utils
+end # module VirtFS::NTFS

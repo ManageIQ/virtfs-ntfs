@@ -1,4 +1,4 @@
-module NTFS
+module VirtFS::NTFS
   # The _ATTRIB_TYPE enumeration.
   # Every entry in the MFT is made of a list of attributes. These are the attrib types.
   AT_STANDARD_INFORMATION  = 0x00000010 # Base data: MAC times, version, owner, security, quota, permissions

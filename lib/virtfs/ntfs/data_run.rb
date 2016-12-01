@@ -1,6 +1,6 @@
 require 'memory_buffer'
 
-module NTFS
+module VirtFS::NTFS
   class DataRun
     DEBUG_TRACE_READS = false
 
@@ -15,17 +15,17 @@ module NTFS
       8 => [0x0000000000000000, 'Q', 'q']
     }
 
-    attr_reader :runSpec, :boot_sector, :length, :pos
+    attr_reader :run_spec, :boot_sector, :length, :pos
 
     def initialize(bs, buf, header)
       raise "MIQ(NTFS::DataRun.initialize) Nil boot sector" if bs.nil?
       raise "MIQ(NTFS::DataRun.initialize) Nil buffer"      if buf.nil?
 
       # Buffer boot sector & start spec array.
-      @boot_sector     = bs
-      @bytesPerCluster = bs.bytesPerCluster
-      @header          = header
-      @runSpec         = []
+      @boot_sector       = bs
+      @bytes_per_cluster = bs.bytes_per_cluster
+      @header            = header
+      @run_spec          = []
       rewind
 
       # Read bytes until 0.
@@ -45,12 +45,12 @@ module NTFS
         # puts "size_of_offset 0x#{'%08x' % size_of_offset}"
 
         # Get length of run (number of clusters).
-        run_length = suckBytes(buf[spec_pos, size_of_length])
+        run_length = suck_bytes(buf[spec_pos, size_of_length])
         spec_pos += size_of_length
         # puts "length      0x#{'%08x' % run_length}"
 
         # Get offset (offset from previous cluster).
-        run_offset = suckBytes(buf[spec_pos, size_of_offset])
+        run_offset = suck_bytes(buf[spec_pos, size_of_offset])
         spec_pos += size_of_offset
         # puts "offset      0x#{'%08x' % run_offset}"
 
@@ -75,11 +75,11 @@ module NTFS
 
         # Store run spec.
         total_clusters += run_length
-        @runSpec << lcn
-        @runSpec << run_length
+        @run_spec << lcn
+        @run_spec << run_length
       end
       @length = header.specific['data_size']
-      @length = total_clusters * @bytesPerCluster if @length == 0
+      @length = total_clusters * @bytes_per_cluster if @length == 0
 
       # Cache the clusters we've already read.
       @clusters = {}
@@ -89,9 +89,23 @@ module NTFS
       # @current_run
     end
 
-    def addRun(r)
-      @runSpec += r.runSpec
+    def add_run(r)
+      @run_spec += r.run_spec
       @length += r.length
+    end
+
+    def [](what)
+      if what.class == Range
+        offset = what.begin
+        len    = what.end - what.begin + 1
+        return self.[](offset, len)
+      end
+
+      if what.instance_of?(Integer)
+        return self.[](what, 1)
+      end
+
+      raise "MIQ(NTFS::DataRun.[]) Invalid Class (#{what.class})"
     end
 
     def [](offset, len)
@@ -114,42 +128,39 @@ module NTFS
       @pos
     end
 
-    def seekToVcn(vcn)
-      seek(vcn * @bytesPerCluster)
+    def seek_to_vcn(vcn)
+      seek(vcn * @bytes_per_cluster)
     end
 
     def read(bytes = @length)
       return nil if @pos >= @length
-      $log.info "#{self.class} #{object_id}: Reading #{bytes} bytes @ #{@pos}" if DEBUG_TRACE_READS
 
-      startCluster, startOffset = @pos.divmod(@bytesPerCluster)
-      endCluster, endOffset = (@pos + (bytes - 1)).divmod(@bytesPerCluster)
+      startCluster, startOffset = @pos.divmod(@bytes_per_cluster)
+      endCluster, endOffset = (@pos + (bytes - 1)).divmod(@bytes_per_cluster)
 
-      ret = getClusters(startCluster, endCluster)
-      ret = ret[startOffset..endOffset - @bytesPerCluster]
+      ret = get_clusters(startCluster, endCluster)
+      ret = ret[startOffset..endOffset - @bytes_per_cluster]
       @pos += ret.length
 
       ret
     end
 
-    def getClusters(start_vcn, end_vcn = nil)
+    def get_clusters(start_vcn, end_vcn = nil)
       end_vcn = start_vcn if end_vcn.nil?
 
       # Single cluster
       if start_vcn == end_vcn && @clusters.key?(start_vcn)
-        $log.info "#{self.class} #{object_id}: Reading clusters [#{start_vcn}, 1, true]" if DEBUG_TRACE_READS
-        return readCachedClusters(start_vcn, 1)[0]
+        return read_cached_clusters(start_vcn, 1)[0]
       end
 
       # Multiple clusters (part of which may be cached)
       num = end_vcn - start_vcn + 1
-      ret = MemoryBuffer.create(num * @bytesPerCluster)
+      ret = MemoryBuffer.create(num * @bytes_per_cluster)
       offset = 0
 
-      to_read = findCachedClusters(start_vcn, end_vcn)
-      $log.info "#{self.class} #{object_id}: Reading clusters #{to_read.inspect}" if DEBUG_TRACE_READS
+      to_read = find_cached_clusters(start_vcn, end_vcn)
       to_read.each_slice(3) do |vcn, len, cached|
-        clusters = cached ? readCachedClusters(vcn, len) : readRawClusters(vcn, len)
+        clusters = cached ? read_cached_clusters(vcn, len) : read_raw_clusters(vcn, len)
         clusters.each do |c|
           len = c.length
           ret[offset, len] = c
@@ -157,12 +168,12 @@ module NTFS
         end
       end
 
-      addClusterCache(start_vcn, ret)
+      add_cluster_cache(start_vcn, ret)
 
       ret
     end
 
-    def findCachedClusters(start_vcn, end_vcn)
+    def find_cached_clusters(start_vcn, end_vcn)
       to_read = []
       cur = run = last_cached = nil
 
@@ -182,16 +193,16 @@ module NTFS
       to_read
     end
 
-    def readCachedClusters(vcn, num)
+    def read_cached_clusters(vcn, num)
       ret = []
 
       while num > 0
-        data, start_vcn, end_vcn, data_len, offset = getCacheInfo(vcn)
+        data, start_vcn, end_vcn, data_len, offset = get_cache_info(vcn)
 
         len = data_len - offset
         len = num if num < len
 
-        ret << data[offset * @bytesPerCluster, len * @bytesPerCluster]
+        ret << data[offset * @bytes_per_cluster, len * @bytes_per_cluster]
 
         num -= len
         vcn += len
@@ -200,14 +211,14 @@ module NTFS
       ret
     end
 
-    def addClusterCache(start_vcn, data)
-      end_vcn = start_vcn + (data.length / @bytesPerCluster) - 1
+    def add_cluster_cache(start_vcn, data)
+      end_vcn = start_vcn + (data.length / @bytes_per_cluster) - 1
 
       has_start = @clusters.key?(start_vcn)
-      start_data, start_data_vcn, = getCacheInfo(start_vcn) if has_start
+      start_data, start_data_vcn, = get_cache_info(start_vcn) if has_start
 
       has_end = @clusters.key?(end_vcn)
-      end_data, end_data_vcn, end_data_end_vcn, end_data_len, end_offset = getCacheInfo(end_vcn) if has_end
+      end_data, end_data_vcn, end_data_end_vcn, end_data_len, end_offset = get_cache_info(end_vcn) if has_end
 
       # Determine if we are adding an existing item or sub-item back into the cache
       return if has_start && has_end && start_data_vcn == end_data_vcn
@@ -215,7 +226,7 @@ module NTFS
       # Determine if we are overlapping an existing cached item at the start
       if has_start && start_data_vcn != start_vcn
         leftover_len = start_vcn - start_data_vcn
-        leftover = start_data[0, leftover_len * @bytesPerCluster]
+        leftover = start_data[0, leftover_len * @bytes_per_cluster]
 
         # Recache only the leftover portion
         @clusters[start_data_vcn] = leftover
@@ -224,7 +235,7 @@ module NTFS
       # Determine if we are overlapping an existing cached item at the end
       if has_end && end_data_end_vcn != end_vcn
         leftover_start_vcn = end_vcn + 1
-        leftover = end_data[(end_offset + 1) * @bytesPerCluster..-1]
+        leftover = end_data[(end_offset + 1) * @bytes_per_cluster..-1]
 
         # Recache only the leftover portion
         @clusters[leftover_start_vcn] = leftover
@@ -236,7 +247,7 @@ module NTFS
       (start_vcn + 1..end_vcn).each { |i| @clusters[i] = start_vcn }
     end
 
-    def getCacheInfo(vcn)
+    def get_cache_info(vcn)
       data = @clusters[vcn]
       offset = 0
       start_vcn = vcn
@@ -246,19 +257,19 @@ module NTFS
         data = @clusters[data]
       end
 
-      len = data.length / @bytesPerCluster
+      len = data.length / @bytes_per_cluster
       end_vcn = start_vcn + len - 1
 
       return data, start_vcn, end_vcn, len, offset
     end
 
-    def readRawClusters(vcn, num)
+    def read_raw_clusters(vcn, num)
       ret = []
       offset = 0
 
-      lcns = getLCNs(vcn, num)
+      lcns = get_lcns(vcn, num)
       lcns.each_slice(2) do |lcn, len|
-        len *= @bytesPerCluster
+        len *= @bytes_per_cluster
 
         clusters = unless lcn.nil?
                      @boot_sector.stream.seek(@boot_sector.lcn2abs(lcn))
@@ -274,13 +285,13 @@ module NTFS
       ret
     end
 
-    def getLCNs(start_vcn, num)
+    def get_lcns(start_vcn, num)
       lcns = []
       end_vcn = start_vcn + num - 1
       vcn = start_vcn
       total_clusters = 0
 
-      @runSpec.each_slice(2) do |lcn, len|
+      @run_spec.each_slice(2) do |lcn, len|
         total_clusters += len
         next unless total_clusters > start_vcn
 
@@ -299,7 +310,7 @@ module NTFS
       lcns
     end
 
-    def suckBytes(buf)
+    def suck_bytes(buf)
       return buf[0, 1].ord if buf.size == 1
       val = 0
       (buf.size - 1).downto(0) { |i| val *= 256; val += buf[i, 1].ord }
@@ -307,52 +318,14 @@ module NTFS
     end
 
     # Return true if a particular compression unit is compressed.
-    def isUnitCompr?(unit = 0)
-      return false unless header.isCompressd?
-      mkComprUnits if @compr_units.nil?
-      @compr_units[unit].isCompressed?
+    def compressed?(unit = 0)
+      return false unless header.compressd?
+      mk_compr_units if @compr_units.nil?
+      @compr_units[unit].compressed?
     end
 
     # Organize run list into compression units.
-    def mkComprUnits
+    def mk_compr_units
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Length       : #{@length}\n"
-      out << "  Position     : #{@pos}\n"
-      out << "  Run List     : #{@runSpec.inspect}\n"
-      out << "  Cache Ranges : #{dumpCacheRanges}\n"
-      out << "---\n"
-      out
-    end
-
-    def dumpRunList
-      @runSpec.each_slice(2) { |lcn, len| puts "lcn = #{lcn.nil? ? 0 : lcn}, len = #{len}" }
-    end
-
-    def dumpCacheRanges
-      str = k_start = k_prev = nil
-      invalid = true
-      out = []
-      @clusters.keys.sort.each do |k|
-        if @clusters[k].kind_of?(String)
-          out << "#{invalid ? "*(#{str}) " : ''}#{k_start}..#{k_prev}" unless k_start.nil?
-          str = k
-          k_start = k
-          invalid = false
-        elsif @clusters[k] != str
-          out << "#{invalid ? "*(#{str}) " : ''}#{k_start}..#{k_prev}" unless k_start.nil?
-          str = @clusters[k]
-          k_start = k
-          invalid = true
-        elsif k != k_prev + 1
-          out << "#{k}^"
-        end
-        k_prev = k
-      end
-      out << "#{invalid ? "*(#{str}) " : ''}#{k_start}..#{k_prev}" unless k_start.nil?
-      out.inspect
-    end
-  end # class
-end # module NTFS
+  end # class DataRun
+end # module VirtFS::NTFS

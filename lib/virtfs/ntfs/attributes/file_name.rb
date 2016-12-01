@@ -1,10 +1,10 @@
-require 'fs/ntfs/utils'
-require 'util/win32/nt_util'
+require 'virtfs/ntfs/utils'
+require 'virtfs/ntfs/nt_util'
 require 'binary_struct'
-require 'util/miq-unicode'
-require 'fs/ntfs/attrib_standard_information'
+require 'virt_disk/disk_unicode'
+require 'virtfs/ntfs/attributes/standard_information'
 
-module NTFS
+module VirtFS::NTFS
   #
   # FILE_NAME_ATTR - Attribute: Filename (0x30)
   #
@@ -40,7 +40,7 @@ module NTFS
   SIZEOF_ATTRIB_FILE_NAME = ATTRIB_FILE_NAME.size
 
   class FileName
-    attr_reader :name, :namespace, :length, :permissions, :refParent
+    attr_reader :name, :namespace, :length, :permissions, :ref_parent
 
     NS_POSIX  = 0
     NS_WIN32  = 1
@@ -59,7 +59,7 @@ module NTFS
       @permissions = @afn['flags']
       @length      = @afn['data_size']
       @namespace   = @afn['namespace']
-      @refParent   = NTFS::Utils.MkRef(@afn['ref_to_parent_dir'])
+      @ref_parent  = VirtFS::NTFS::Utils.mk_ref(@afn['ref_to_parent_dir'])
 
       # If there's a name get it.
       len          = @afn['name_length'] * 2
@@ -86,25 +86,8 @@ module NTFS
     end
 
     # Returns nil if not directory.
-    def isDir?
-      NTFS::Utils.gotBit?(@permissions, StandardInformation.FP_DIRECTORY)
+    def dir?
+      VirtFS::NTFS::Utils.bit?(@permissions, StandardInformation.FP_DIRECTORY)
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Parent dir : seq #{@refParent[0]}, entry #{@refParent[1]}\n"
-      out << "  Created    : #{@cTime}\n"
-      out << "  Modified   : #{@mTime}\n"
-      out << "  MFT changed: #{NtUtil.nt_filetime_to_ruby_time(@afn['time_mft_changed'])}\n"
-      out << "  Accessed   : #{@aTime}\n"
-      out << "  Allocated  : #{@afn['allocated_size']}\n"
-      out << "  Real size  : #{@length}\n"
-      out << "  Flags      : 0x#{'%08x' % @flags}\n"
-      out << "  Reparse    : #{@afn['reparse_point_tag']}\n"
-      out << "  Name length: #{@afn['name_length']}\n"
-      out << "  Namespace  : #{@namespace}\n"
-      out << "  Name       : #{@name}\n"
-      out << "---\n"
-    end
-  end
-end # module NTFS
+  end # class FileName
+end # module VirtFS::NTFS

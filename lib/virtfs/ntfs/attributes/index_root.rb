@@ -1,10 +1,10 @@
 require 'binary_struct'
-require 'util/miq-unicode'
-require 'fs/ntfs/index_node_header'
-require 'fs/ntfs/directory_index_node'
-require 'fs/ntfs/index_record_header'
+require 'virt_disk/disk_unicode'
+require 'virtfs/ntfs/index_node_header'
+require 'virtfs/ntfs/directory_index_node'
+require 'virtfs/ntfs/index_record_header'
 
-module NTFS
+module VirtFS::NTFS
   #
   # INDEX_ROOT - Attribute: Index root (0x90).
   #
@@ -39,8 +39,6 @@ module NTFS
   SIZEOF_ATTRIB_INDEX_ROOT = ATTRIB_INDEX_ROOT.size
 
   class IndexRoot
-    DEBUG_TRACE_FIND = false && $log
-
     CT_BINARY   = 0x00000000  # Binary compare, MSB is first (does that mean big endian?)
     CT_FILENAME = 0x00000001  # UNICODE strings.
     CT_UNICODE  = 0x00000002  # UNICODE, upper case first.
@@ -49,19 +47,16 @@ module NTFS
     CT_SECHASH  = 0x00000012  # First security hash, then security identifier.
     CT_ULONGS   = 0x00000013  # Set of ULONGS? (doc is unclear - indicates GUID).
 
-    def self.create_from_header(header, buf, bs)
-      return IndexRoot.new(buf, bs) if header.containsFileNameIndexes?
-      $log.debug("Skipping #{header.typeName} for name <#{header.name}>") if $log
+    def self.from_header(header, buf, bs)
+      return IndexRoot.new(buf, bs) if header.file_name_indices?
       nil
     end
 
     attr_reader :type, :nodeHeader, :index, :indexAlloc
 
     def initialize(buf, boot_sector)
-      log_prefix = "MIQ(NTFS::IndexRoot.initialize)"
-
-      raise "#{log_prefix} Nil buffer"        if buf.nil?
-      raise "#{log_prefix} Nil boot sector"   if boot_sector.nil?
+      raise "nil buffer"        if buf.nil?
+      raise "nil boot sector"   if boot_sector.nil?
 
       buf                = buf.read(buf.length) if buf.kind_of?(DataRun)
       @air               = ATTRIB_INDEX_ROOT.decode(buf)
@@ -78,8 +73,17 @@ module NTFS
       # Get node header & index.
       @foundEntries      = {}
       @indexNodeHeader   = IndexNodeHeader.new(buf)
-      @indexEntries      = cleanAllocEntries(DirectoryIndexNode.nodeFactory(buf[@indexNodeHeader.startEntries..-1]))
+      @indexEntries      = clean_alloc_entries(DirectoryIndexNode.nodeFactory(buf[@indexNodeHeader.start_entries..-1]))
       @indexAlloc        = {}
+
+      @indexEntries.each { |ie| ie.resolve(boot_sector) }
+    end
+
+    def fs
+      @boot_sector.fs
+    end
+
+    def close
     end
 
     def to_s
@@ -88,14 +92,14 @@ module NTFS
 
     def allocations=(indexAllocations)
       @indexAllocRuns = []
-      if @indexNodeHeader.hasChildren? && indexAllocations
+      if @indexNodeHeader.children? && indexAllocations
         indexAllocations.each { |alloc| @indexAllocRuns << [alloc.header, alloc.data_run] }
       end
       @indexAllocRuns
     end
 
     def bitmap=(bmp)
-      if @indexNodeHeader.hasChildren?
+      if @indexNodeHeader.children?
         @bitmap = bmp.data.unpack("b#{bmp.length * 8}") unless bmp.nil?
       end
 
@@ -104,77 +108,62 @@ module NTFS
 
     # Find a name in this index.
     def find(name)
-      log_prefix = "MIQ(NTFS::IndexRoot.find)"
-
       name = name.downcase
-      $log.debug "#{log_prefix} Searching for [#{name}]" if DEBUG_TRACE_FIND
       if @foundEntries.key?(name)
-        $log.debug "#{log_prefix} Found [#{name}] (cached)" if DEBUG_TRACE_FIND
         return @foundEntries[name]
       end
 
-      found = findInEntries(name, @indexEntries)
+      found = find_in_entries(name, @indexEntries)
       if found.nil?
         # Fallback to full directory search if not found
-        $log.debug "#{log_prefix} [#{name}] not found.  Performing full directory scan." if $log
-        found = findBackup(name)
-        $log.send(found.nil? ? :debug : :warn, "#{log_prefix} [#{name}] #{found.nil? ? "not " : ""}found in full directory scan.")  if $log
+        found = find_backup(name)
       end
       found
     end
 
     # Return all names in this index as a sorted string array.
-    def globNames
-      @globNames = globEntries.collect { |e| e.namespace == NTFS::FileName::NS_DOS ? nil : e.name.downcase }.compact if @globNames.nil?
+    def glob_names
+      @globNames = glob_entries.collect { |e| e.namespace == VirtFS::NTFS::FileName::NS_DOS ? nil : e.name.downcase }.compact if @globNames.nil?
       @globNames
     end
 
-    def findInEntries(name, entries)
-      log_prefix = "MIQ(NTFS::IndexRoot.findInEntries)"
-
+    def find_in_entries(name, entries)
       if @foundEntries.key?(name)
-        $log.debug "#{log_prefix} Found [#{name}] in #{entries.collect { |e| e.isLast? ? "**last**" : e.name.downcase }.inspect}" if DEBUG_TRACE_FIND
         return @foundEntries[name]
       end
 
-      $log.debug "#{log_prefix} Searching for [#{name}] in #{entries.collect { |e| e.isLast? ? "**last**" : e.name.downcase }.inspect}" if DEBUG_TRACE_FIND
       # TODO: Uses linear search within an index entry; switch to more performant search eventually
       entries.each do |e|
-        $log.debug "#{log_prefix} before [#{e.isLast? ? "**last**" : e.name.downcase}]" if DEBUG_TRACE_FIND
-        if e.isLast? || name < e.name.downcase
-          $log.debug "#{log_prefix} #{e.hasChild? ? "Sub-search in child vcn [#{e.child}]" : "No sub-search"}" if DEBUG_TRACE_FIND
-          return e.hasChild? ? findInEntries(name, getIndexAllocEntries(e.child)) : nil
+        if e.last? || name < e.name.downcase
+          return e.child? ? find_in_entries(name, index_alloc_entries(e.child)) : nil
         end
       end
-      $log.debug "#{log_prefix} Did not find [#{name}]" if DEBUG_TRACE_FIND
       nil
     end
 
-    def findBackup(name)
-      globEntriesByName[name]
+    def find_backup(name)
+      glob_entries_by_name[name]
     end
 
-    def getIndexAllocEntries(vcn)
+    def index_alloc_entries(vcn)
       unless @indexAlloc.key?(vcn)
-        log_prefix = "MIQ(NTFS::IndexRoot.getIndexAllocEntries)"
-
         begin
           raise "not allocated"    if @bitmap[vcn, 1] == "0"
           header, run = @indexAllocRuns.detect { |h, _r| vcn >= h.specific['first_vcn'] && vcn <= h.specific['last_vcn'] }
           raise "header not found" if header.nil?
           raise "run not found"    if run.nil?
 
-          run.seekToVcn(vcn - header.specific['first_vcn'])
+          run.seek_to_vcn(vcn - header.specific['first_vcn'])
           buf = run.read(@byteSize)
 
           raise "buffer not found" if buf.nil?
           raise "buffer signature is expected to be INDX, but is [#{buf[0, 4].inspect}]" if buf[0, 4] != "INDX"
-          irh = IndexRecordHeader.new(buf, @boot_sector.bytesPerSector)
+          irh = IndexRecordHeader.new(buf, @boot_sector.bytes_per_sector)
           buf = irh.data[IndexRecordHeader.size..-1]
           inh = IndexNodeHeader.new(buf)
-          @indexAlloc[vcn] = cleanAllocEntries(DirectoryIndexNode.nodeFactory(buf[inh.startEntries..-1]))
+          @indexAlloc[vcn] = clean_alloc_entries(DirectoryIndexNode.nodeFactory(buf[inh.start_entries..-1]))
+          @indexAlloc[vcn].each { |ie| ie.resolve(@boot_sector) }
         rescue => err
-          $log.warn "#{log_prefix} Unable to read data from index allocation at vcn [#{vcn}] because <#{err.message}>\n#{dump}" if $log
           @indexAlloc[vcn] = []
         end
       end
@@ -182,21 +171,21 @@ module NTFS
       @indexAlloc[vcn]
     end
 
-    def cleanAllocEntries(entries)
-      cleanEntries = []
+    def clean_alloc_entries(entries)
+      clean = []
       entries.each do |e|
-        if e.isLast? || !(e.contentLen == 0 || (e.refMft[1] < 12 && e.name[0, 1] == "$"))
-          cleanEntries << e
+        if e.last? || !(e.content_len == 0 || (e.ref_mft[1] < 12 && e.name[0, 1] == "$"))
+          clean << e
           # Since we are already looping through all entries to clean
           #   them we can store them in a lookup for optimization
-          @foundEntries[e.name.downcase] = e unless e.isLast?
+          @foundEntries[e.name.downcase] = e unless e.last?
         end
       end
-      cleanEntries
+      clean
     end
 
-    def globEntries
-      return @globEntries unless @globEntries.nil?
+    def glob_entries
+      return @glob_entries unless @glob_entries.nil?
 
       # Since we are reading all entries, retrieve all of the data in one call
       @indexAllocRuns.each do |_h, r|
@@ -204,44 +193,28 @@ module NTFS
         r.read(r.length)
       end
 
-      @globEntries = globAllEntries(@indexEntries)
+      @glob_entries = glob_all_entries(@indexEntries)
     end
 
-    def globEntriesByName
-      log_prefix = "MIQ(NTFS::IndexRoot.globEntriesByName)"
-
+    def glob_entries_by_name
       if @globbedEntriesByName
-        $log.debug "#{log_prefix} Using cached globEntries." if DEBUG_TRACE_FIND
         return @foundEntries
       end
 
-      $log.debug "#{log_prefix} Initializing globEntries:" if DEBUG_TRACE_FIND
-      globEntries.each do |e|
-        $log.debug "#{log_prefix} #{e.isLast? ? "**last**" : e.name.downcase}" if DEBUG_TRACE_FIND
+      glob_entries.each do |e|
         @foundEntries[e.name.downcase] = e
       end
       @globbedEntriesByName = true
       @foundEntries
     end
 
-    def globAllEntries(entries)
+    def glob_all_entries(entries)
       ret = []
       entries.each do |e|
-        ret += globAllEntries(getIndexAllocEntries(e.child)) if e.hasChild?
-        ret << e unless e.isLast?
+        ret += glob_all_entries(index_alloc_entries(e.child)) if e.child?
+        ret << e unless e.last?
       end
       ret
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>\n"
-      out << "  Type                 : 0x#{'%08x' % @type}\n"
-      out << "  Collation Rule       : #{@collation_rule}\n"
-      out << "  Index size (bytes)   : #{@byteSize}\n"
-      out << "  Index size (clusters): #{@clusterSize}\n"
-      @indexEntries.each { |din| out << din.dump }
-      out << "---\n"
-      out
-    end
-  end
-end # module NTFS
+  end # class IndexRoot
+end # module VirtFS::NTFS

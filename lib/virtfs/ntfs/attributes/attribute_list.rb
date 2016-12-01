@@ -1,8 +1,8 @@
-require 'fs/ntfs/utils'
+require 'virtfs/ntfs/utils'
 require 'binary_struct'
-require 'util/miq-unicode'
+require 'virt_disk/disk_unicode'
 
-module NTFS
+module VirtFS::NTFS
   #
   # ATTR_LIST_ENTRY - Attribute: Attribute list (0x20).
   #
@@ -46,8 +46,7 @@ module NTFS
     # list entry for each extent.
     # NOTE: This is DEFINITELY a signed value! The windows driver uses cmp, followed
     # by jg when comparing this, thus it treats it as signed.
-    'Q',  'mft_reference',  # The reference of the mft record holding the ATTR_RECORD for this
-    # portion of the attribute value
+    'Q',  'mft_reference',  # The reference of the mft record holding the ATTR_RECORD for this portion of the attribute value
     'S',  'attrib_id',      # If lowest_vcn = 0, the instance of the attribute being referenced; otherwise 0.
 
   ])
@@ -79,7 +78,7 @@ module NTFS
         aal['name'] = buf[pos + aal['name_offset'], len].UnicodeToUtf8 if len > 0
 
         # Log instances of funky references.
-        aal['mft'] = NTFS::Utils.MkRef(aal['mft_reference'])[1]
+        aal['mft'] = VirtFS::NTFS::Utils.mk_ref(aal['mft_reference'])[1]
 
         # Store (if not bad)
         @list << aal  if aal['mft'] <= @boot_sector.maxMft
@@ -89,12 +88,8 @@ module NTFS
       end
     end
 
-    def to_s
-      super
-    end
-
     # Load attributes of requested type
-    def loadAttributes(attribType)
+    def load_attributes(attribType)
       result = []
 
       # ad is an attribute descriptor.
@@ -102,30 +97,10 @@ module NTFS
         next unless ad['attrib_type'] == attribType
 
         # Load referenced attribute and add it to parent.
-        result += @boot_sector.mftEntry(ad['mft']).loadAttributes(attribType)
+        result += @boot_sector.mftEntry(ad['mft']).load_attributes(attribType)
       end
 
       result
     end
-
-    def dump
-      out = "\#<#{self.class}:0x#{'%08x' % object_id}>, #{@list.size} attributes:\n"
-      @list.each { |at| out << dumpElement(at) }
-      out
-    end
-
-    def dumpElement(at)
-      ref = NTFS::Utils.MkRef(at['mft_reference'])
-      out = "\#<#{at.class}:0x#{'%08x' % at.object_id}> (#{TypeName[at['attrib_type']]} - #{at['name'] ? at['name'] : '[unnamed]'})\n"
-      out << "Type    : 0x#{'%08x' % at['attrib_type']}\n"
-      out << "Length  : 0x#{'%04x' % at['length']}\n"
-      out << "NameLen : #{at['name_length']}\n"
-      out << "NameOfs : #{at['name_offset']}\n"
-      out << "FirstVCN: 0x#{'%016x' % at['first_vcn']}\n"
-      out << "BaseRef : #{ref[0]}, #{ref[1]}\n"
-      out << "BaseRef : 0x#{'%016x' % ref[1]}\n"
-      out << "AttribID: #{at['attrib_id']}\n\n"
-      out
-    end
   end # class AttributeList
-end # module NTFS
+end # module VirtFS::NTFS
