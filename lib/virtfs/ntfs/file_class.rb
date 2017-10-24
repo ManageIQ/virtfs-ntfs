@@ -1,6 +1,9 @@
 module VirtFS::NTFS
   class FS
     def file_atime(p)
+      file = get_file(p)
+      raise Errno::ENOENT, "No such file or directory" if file.nil?
+      file.afn.aTime
     end
 
     def file_blockdev?(p)
@@ -10,18 +13,29 @@ module VirtFS::NTFS
     end
 
     def file_chmod(permission, p)
+      raise "writes not supported"
     end
 
     def file_chown(owner, group, p)
+      raise "writes not supported"
     end
 
     def file_ctime(p)
+      file = get_file(p)
+      raise Errno::ENOENT, "No such file or directory" if file.nil?
+      file.afn.cTime
     end
 
     def file_delete(p)
+      raise "writes not supported"
     end
 
     def file_directory?(p)
+      file = get_file(p)
+      return false if file.nil?
+      file.resolve(boot_sector)
+      return true if file.dir?
+      false
     end
 
     def file_executable?(p)
@@ -35,6 +49,11 @@ module VirtFS::NTFS
     end
 
     def file_file?(p)
+      file = get_file(p)
+      return false if file.nil?
+      file.resolve(boot_sector)
+      return false if file.dir?
+      true
     end
 
     def file_ftype(p)
@@ -47,12 +66,15 @@ module VirtFS::NTFS
     end
 
     def file_lchmod(permission, p)
+      raise "writes not supported"
     end
 
     def file_lchown(owner, group, p)
+      raise "writes not supported"
     end
 
     def file_link(p1, p2)
+      raise "writes not supported"
     end
 
     def file_lstat(p)
@@ -62,6 +84,9 @@ module VirtFS::NTFS
     end
 
     def file_mtime(p)
+      file = get_file(p)
+      raise Errno::ENOENT, "No such file or directory" if file.nil?
+      file.afn.mTime
     end
 
     def file_owned?(p)
@@ -89,6 +114,9 @@ module VirtFS::NTFS
     end
 
     def file_size(p)
+      file = get_file(p)
+      raise Errno::ENOENT, "No such file or directory" if file.nil?
+      file.afn.length
     end
 
     def file_socket?(p)
@@ -125,6 +153,9 @@ module VirtFS::NTFS
     end
 
     def file_new(f, parsed_args, _open_path, _cwd)
+      de  = get_file(f)
+      raise Errno::ENOENT, "No such file or directory" if de.nil?
+      File.new(de, boot_sector)
     end
 
     private

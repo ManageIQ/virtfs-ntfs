@@ -17,12 +17,12 @@ module VirtFS::NTFS
     IN_HAS_CHILD   = 0x00000001
     IN_LAST_ENTRY  = 0x00000002
 
-    attr_reader :ref_mft, :length, :content_len, :flags, :child, :afn, :mft_entry
+    attr_reader :fs, :ref_mft, :length, :content_len, :flags, :child, :afn, :mft_entry
 
-    def self.nodeFactory(buf)
+    def self.nodeFactory(fs, buf)
       nodes = []
       loop do
-        node   = DirectoryIndexNode.new(buf)
+        node   = DirectoryIndexNode.new(fs, buf)
         buf    = buf[node.length..-1]
         nodes << node
         break if node.last?
@@ -31,8 +31,10 @@ module VirtFS::NTFS
       nodes
     end
 
-    def initialize(buf)
+    def initialize(fs, buf)
       raise "nil buffer" if buf.nil?
+
+      @fs = fs
 
       buf = buf.read(buf.length) if buf.kind_of?(DataRun)
       # Decode the directory index node structure.
@@ -53,10 +55,6 @@ module VirtFS::NTFS
         # Child node VCN is located 8 bytes before 'length' bytes.
         # NOTE: If the node has 0 contents, it's offset 16.
         @child = buf[@content_len == 0 ? 16 : @length - 8, 8].unpack('Q')[0]
-        if @child.class == Bignum #|| Fixnum?
-          # buf.hex_dump(:obj => STDOUT, :meth => :puts, :newline => false)
-          raise "MIQ(NTFS::DirectoryIndexNode.initialize) Bad child node: #{@child}"
-        end
       end
     end
 

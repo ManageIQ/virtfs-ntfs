@@ -54,7 +54,7 @@ module VirtFS::NTFS
              when IO::SEEK_END then (@length - offset)
              when IO::SEEK_SET then offset
              end
-      @data.seek(offset, method) if @data.kind_of?(NTFS::DataRun)
+      @data.seek(offset, method) if @data.kind_of?(VirtFS::NTFS::DataRun)
       @pos
     end
 

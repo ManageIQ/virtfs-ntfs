@@ -73,7 +73,7 @@ module VirtFS::NTFS
       # Get node header & index.
       @foundEntries      = {}
       @indexNodeHeader   = IndexNodeHeader.new(buf)
-      @indexEntries      = clean_alloc_entries(DirectoryIndexNode.nodeFactory(buf[@indexNodeHeader.start_entries..-1]))
+      @indexEntries      = clean_alloc_entries(DirectoryIndexNode.nodeFactory(fs, buf[@indexNodeHeader.start_entries..-1]))
       @indexAlloc        = {}
 
       @indexEntries.each { |ie| ie.resolve(boot_sector) }
@@ -84,6 +84,10 @@ module VirtFS::NTFS
     end
 
     def close
+    end
+
+    def read(pos)
+      return cache[pos], pos + 1
     end
 
     def to_s
@@ -161,7 +165,7 @@ module VirtFS::NTFS
           irh = IndexRecordHeader.new(buf, @boot_sector.bytes_per_sector)
           buf = irh.data[IndexRecordHeader.size..-1]
           inh = IndexNodeHeader.new(buf)
-          @indexAlloc[vcn] = clean_alloc_entries(DirectoryIndexNode.nodeFactory(buf[inh.start_entries..-1]))
+          @indexAlloc[vcn] = clean_alloc_entries(DirectoryIndexNode.nodeFactory(fs, buf[inh.start_entries..-1]))
           @indexAlloc[vcn].each { |ie| ie.resolve(@boot_sector) }
         rescue => err
           @indexAlloc[vcn] = []
@@ -215,6 +219,12 @@ module VirtFS::NTFS
         ret << e unless e.last?
       end
       ret
+    end
+
+    private
+
+    def cache
+      @cache ||= glob_entries.to_a
     end
   end # class IndexRoot
 end # module VirtFS::NTFS
