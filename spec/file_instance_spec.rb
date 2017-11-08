@@ -1,17 +1,12 @@
 require 'spec_helper'
 
 describe "VirtFS::NTFS::File instance methods" do
-  before(:all) do
-    reset_context
-
-    @root      = File::SEPARATOR
-    @ntfs      = build(:ntfs)
-    @full_path = @ntfs.glob_dir.first
-    VirtFS.mount(@ntfs.fs, @root)
+  def cassette_path
+    "spec/cassettes/file_instance.yml"
   end
 
-  after(:all) do
-    VirtFS.umount(@root)
+  before(:all) do
+    @full_path = @ntfs.glob_dir.first
   end
 
   before(:each) do

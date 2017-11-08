@@ -1,16 +1,8 @@
 require 'spec_helper'
 
 describe "NTFS::Dir class methods" do
-  before(:all) do
-    reset_context
-
-    @root = File::SEPARATOR
-    @ntfs  = build(:ntfs)
-    VirtFS.mount(@ntfs.fs, @root)
-  end
-
-  after(:all) do
-    VirtFS.umount(@root)
+  def cassette_path
+    "spec/cassettes/dir_class.yml"
   end
 
   describe ".[]" do
@@ -55,19 +47,19 @@ describe "NTFS::Dir class methods" do
   describe ".delete .rmdir .unlink" do
     it "should raise Runtime Error writes not supported" do
       expect do
-        VirtFS::VDir.delete("/not_a_dir/foo.d")
+        VirtFS::VDir.delete("/#{@root}/not_a_dir/foo.d")
       end.to raise_error(
         RuntimeError, /writes not supported/
       )
 
       expect do
-        VirtFS::VDir.mkdir("/not_a_dir")
+        VirtFS::VDir.mkdir("/#{@root}/not_a_dir")
       end.to raise_error(
         RuntimeError, /writes not supported/
       )
 
       expect do
-        VirtFS::VDir.mkdir("/not_a_dir")
+        VirtFS::VDir.mkdir("/#{@root}/not_a_dir")
       end.to raise_error(
         RuntimeError, /writes not supported/
       )
@@ -149,7 +141,7 @@ describe "NTFS::Dir class methods" do
   describe ".mkdir" do
     it "should raise Runtime Error writes not supported" do
       expect do
-        VirtFS::VDir.mkdir("/not_a_dir/foo.d")
+        VirtFS::VDir.mkdir("/#{@root}/not_a_dir/foo.d")
       end.to raise_error(
         RuntimeError, /writes not supported/
       )
@@ -159,7 +151,7 @@ describe "NTFS::Dir class methods" do
   describe ".new" do
     it "should raise Errno::ENOENT when directory doesn't exist" do
       expect do
-        VirtFS::VDir.new("/not_a_dir")
+        VirtFS::VDir.new("/#{@root}/not_a_dir")
       end.to raise_error(
         RuntimeError, /Can't find index: '\/not_a_dir'/
       )
@@ -173,7 +165,7 @@ describe "NTFS::Dir class methods" do
   describe ".open" do
     it "should raise Errno::ENOENT when directory doesn't exist" do
       expect do
-        VirtFS::VDir.new("/not_a_dir")
+        VirtFS::VDir.new("/#{@root}/not_a_dir")
       end.to raise_error(
         RuntimeError, /Can't find index: '\/not_a_dir'/
       )

@@ -4,23 +4,17 @@ require 'spec_helper'
 # Class methods.
 #
 describe "VirtFS::NTFS::File class methods" do
+  def cassette_path
+    "spec/cassettes/file_class.yml"
+  end
+
   before(:all) do
-    reset_context
-
-    @root = File::SEPARATOR
-    @ntfs = build(:ntfs)
-    VirtFS.mount(@ntfs.fs, @root)
-
-    @full_path   = '/d1/fle.ext'
-    @parent_path = '/d1'
+    @full_path   = "/#{@root}/d1/fle.ext"
+    @parent_path = "/#{@root}/d1"
     @rel_path    = 'fle.ext'
     @ext         = ".ext"
     @file1_size  = 8
     @time        = Time.now
-  end
-
-  after(:all) do
-    VirtFS.umount(@root)
   end
 
   describe ".atime" do
