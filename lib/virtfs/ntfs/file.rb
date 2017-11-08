@@ -34,4 +34,4 @@ module VirtFS::NTFS
       @de.afn.mTime
     end
   end # class File
-end # module VirtFS::Fat32
+end # module VirtFS::NTFS

@@ -1,3 +1,5 @@
+require_relative 'ntfs/fs'
+
 require "virtfs/ntfs/version"
 require_relative 'ntfs/attributes/attribute_list'
 require_relative 'ntfs/attributes/bitmap'
@@ -19,7 +21,3 @@ require_relative 'ntfs/index_record_header'
 require_relative 'ntfs/mft_entry'
 require_relative 'ntfs/utils'
 require_relative 'ntfs/file'
-
-require_relative 'ntfs/base'
-require_relative 'ntfs/file_class'
-require_relative 'ntfs/dir_class'

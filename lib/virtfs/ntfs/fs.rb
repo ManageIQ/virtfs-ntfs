@@ -1,3 +1,6 @@
+require_relative 'fs/dir_class_methods'
+require_relative 'fs/file_class_methods'
+
 module VirtFS::NTFS
   class FS
     # Default index cache size
@@ -41,4 +44,4 @@ module VirtFS::NTFS
       @mount_point = nil
     end
   end # class FS
-end # module VirtFS::Ext3
+end # module VirtFS::NTFS
