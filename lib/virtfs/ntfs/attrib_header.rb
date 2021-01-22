@@ -1,5 +1,4 @@
 require 'binary_struct'
-require 'util/miq-unicode'
 require 'fs/ntfs/utils'
 require 'fs/ntfs/attrib_type'
 
@@ -102,7 +101,7 @@ module NTFS
       offset += len
 
       # If there's a name get it.
-      @name = buf[offset, (@namelen * 2)].UnicodeToUtf8  if @namelen != 0
+      @name = NTFS::Utils.UnicodeToUtf8(buf[offset, (@namelen * 2)]) if @namelen != 0
     end
 
     def get_value(buf, boot_sector)

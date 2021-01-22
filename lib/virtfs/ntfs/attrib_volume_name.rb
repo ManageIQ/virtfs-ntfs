@@ -1,4 +1,4 @@
-require 'util/miq-unicode'
+require 'fs/ntfs/utils'
 
 module NTFS
   #
@@ -15,7 +15,7 @@ module NTFS
 
     def initialize(buf)
       buf   = buf.read(buf.length) if buf.kind_of?(DataRun)
-      @name = buf.UnicodeToUtf8
+      @name = NTFS::Utils.UnicodeToUtf8(buf)
     end
 
     def to_s

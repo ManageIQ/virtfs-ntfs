@@ -1,7 +1,6 @@
 require 'fs/ntfs/utils'
 require 'util/win32/nt_util'
 require 'binary_struct'
-require 'util/miq-unicode'
 require 'fs/ntfs/attrib_standard_information'
 
 module NTFS
@@ -47,7 +46,7 @@ module NTFS
     NS_DOS    = 2
     NS_DOSWIN = 3
 
-    UNNAMED = '[unnamed]'.AsciiToUtf8.freeze
+    UNNAMED = '[unnamed]'.freeze
 
     def initialize(buf)
       raise "MIQ(NTFS::FileName.initialize) Nil buffer" if buf.nil?
@@ -62,8 +61,8 @@ module NTFS
       @refParent   = NTFS::Utils.MkRef(@afn['ref_to_parent_dir'])
 
       # If there's a name get it.
-      len          = @afn['name_length'] * 2
-      @name        = buf[0, len].UnicodeToUtf8 if len > 0
+      len = @afn['name_length'] * 2
+      @name = NTFS::Utils.UnicodeToUtf8(buf[0, len]) if len > 0
 
       # If name is nil use NT standard unnamed.
       @name ||= UNNAMED.dup

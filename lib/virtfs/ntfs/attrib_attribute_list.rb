@@ -1,6 +1,5 @@
 require 'fs/ntfs/utils'
 require 'binary_struct'
-require 'util/miq-unicode'
 
 module NTFS
   #
@@ -76,7 +75,7 @@ module NTFS
 
         # If there's a name get it.
         len = aal['name_length'] * 2
-        aal['name'] = buf[pos + aal['name_offset'], len].UnicodeToUtf8 if len > 0
+        aal['name'] = NTFS::Utils.UnicodeToUtf8(buf[pos + aal['name_offset'], len]) if len > 0
 
         # Log instances of funky references.
         aal['mft'] = NTFS::Utils.MkRef(aal['mft_reference'])[1]

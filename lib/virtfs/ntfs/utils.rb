@@ -39,5 +39,9 @@ module NTFS
         raise "Invalid Signature <#{signature}>"
       end
     end
+
+    def self.UnicodeToUtf8(string)
+      string.dup.force_encoding('UTF-16LE').encode('UTF-8')
+    end
   end
 end
